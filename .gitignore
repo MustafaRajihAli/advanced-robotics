@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+.python-version
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Node (dashboards / web tooling, if added later)
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Models (large binaries)
+*.onnx
+*.engine
+*.trt
+*.pt
+*.pth
+!**/README.md
+
+# Secrets
+.env
+.env.local
+.env.run
+secrets/
+*.pem
+*.key
+
+# OS
+Thumbs.db
+desktop.ini
+
+# ROS 2 build artifacts
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/

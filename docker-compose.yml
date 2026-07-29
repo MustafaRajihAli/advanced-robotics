@@ -1,0 +1,18 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/app/config:ro
+    env_file:
+      - .env
+    command: ["uvicorn", "advanced_robotics.api.app:app", "--host", "0.0.0.0", "--port", "8080"]
+
+  safety_monitor:
+    build: .
+    env_file:
+      - .env
+    command: ["python", "-m", "advanced_robotics.safety.safety_monitor"]
+    depends_on:
+      - api
