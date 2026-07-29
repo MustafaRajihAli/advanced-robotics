@@ -54,10 +54,15 @@ and to a digital twin for pre-deployment testing.
 - `safety/safety_monitor.py`: watchdog that halts AMR/arm motion on fault, logs to audit trail
 - Success criteria: injected fault (simulated e-stop, lost heartbeat) halts all actuation within a bounded time
 
-### Phase 5 — Plant integration
+### Phase 5 — Plant integration ✅
 - `integrations/erp_client.py`, `mes_client.py`, `scada_client.py`: thin clients behind one interface (`PlantSystemClient`)
-- `api/`: internal REST/gRPC API exposing robot status + task queue to the plant layer
-- Success criteria: task received from a mock MES call is executed end-to-end in simulation and status reported back
+- `integrations/in_memory_plant.py`: mock plant system (same protocol, no network) for tests and the demo
+- `orchestration/task_router.py`: validates inbound payloads and maps plant task types onto typed `RobotJob`s; unroutable tasks are reported back as `rejected` rather than coerced into motion
+- `orchestration/task_executor.py`: the end-to-end loop — claim task, allocate robot, drive it with `SafetyMonitor.check()` before every command, inspect, release the robot in a `finally`, report status upstream
+- `orchestration/bootstrap.py`: single place that wires the object graph, shared by the API, the demo, and the tests
+- `digital_twin/kinematic_backend.py`: runnable `SimulatorBackend` (differential-drive integration, sensed obstacles, synthetic camera/LiDAR) so the loop actually executes in CI — Gazebo and Isaac Sim remain the fidelity/training backends
+- `api/`: internal REST API exposing live robot poses, safety state with an audited reset, task submission, and `POST /tasks/run`
+- Success criteria **met**: `tests/test_task_executor.py` submits a task through the mock MES client, drives a robot to its goal in the digital twin, and asserts the status report came back — plus e-stop halt, blocked-path, rejection, and multi-robot cases. `scripts/run_demo.py` shows the same path end to end.
 
 ### Phase 6 — Digital twin & sim-to-real
 - `digital_twin/simulator.py`: simulation harness (Gazebo/Isaac Sim adapter) driving AMR + arm + vision modules through the same interfaces used on real hardware
@@ -75,6 +80,7 @@ Applied after researching current (2025) practice in each subsystem:
 | Safety | Added ISO/TS 15066 speed-and-separation-monitoring (SSM) protective-distance formula, gating any shared human/robot workspace alongside the existing e-stop/heartbeat check | [ISO/TS 15066 SSM implementation](https://pmc.ncbi.nlm.nih.gov/articles/PMC5117641/), [ISO/TS 15066 explained](https://www.automate.org/robotics/tech-papers/iso-ts-15066-explained) |
 | Digital twin | Added concrete `IsaacSimBackend` / `GazeboBackend` stubs reflecting the train-in-Isaac-Sim, validate-in-Gazebo, deploy-to-ROS2-hardware pipeline used in current sim-to-real research | [Sim-to-real transfer: Isaac Sim to Gazebo to ROS 2](https://arxiv.org/abs/2501.02902) |
 | CI | Added GitHub Actions workflow running ruff + pytest on every push/PR | — |
+| Orchestration (Phase 5) | Added `orchestration/` (router + executor + bootstrap) and a dependency-free `KinematicSimulator`, so the plant-task → safety-gated motion → status-report path executes in CI instead of existing only as interfaces. Faults are reported upstream as typed statuses (`halted`, `blocked`, `timeout`, `rejected`) and the allocated robot is always released | — |
 
 ## Non-goals for the initial build
 - Surgical robotics and hazardous-environment (nuclear/EOD) applications are out of scope for the first version — they need certified hardware and domain-specific safety cases far beyond a code scaffold. Revisit once the core platform (Phases 0-4) is proven.
@@ -93,10 +99,11 @@ Advanced Robotics/
     core/                  shared types, config loader, errors
     amr/                   SLAM, navigation, fleet coordination
     arm/                   kinematics, force-torque, motion planning
-    vision/                camera fusion, defect detection
+    vision/                camera fusion, defect detection, inspector interface
     safety/                e-stop, safety monitor
-    integrations/          ERP/MES/SCADA clients
-    digital_twin/          simulator + RL training harness
+    integrations/          ERP/MES/SCADA clients + in-memory mock plant
+    orchestration/         task router, task executor, stack bootstrap
+    digital_twin/          simulator backends (kinematic, Gazebo, Isaac Sim)
     api/                   internal API exposed to plant systems
   ros2_ws/src/novus_robotics_bridge/   ROS 2 <-> Python bridge node
   simulation/digital_twin/  sim assets/worlds

@@ -5,7 +5,7 @@
 **AMR fleets, collaborative arms, and AI inspection — where every actuator command passes a safety gate first.**
 
 [![CI](https://github.com/MustafaRajihAli/advanced-robotics/actions/workflows/ci.yml/badge.svg)](https://github.com/MustafaRajihAli/advanced-robotics/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-29%20passing-brightgreen)](./tests)
+[![Tests](https://img.shields.io/badge/tests-61%20passing-brightgreen)](./tests)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![ROS 2](https://img.shields.io/badge/ROS%202-humble%2B-22314E)](https://docs.ros.org/)
 [![Safety](https://img.shields.io/badge/safety-ISO%2FTS%2015066-b45309)](./src/advanced_robotics/safety/ssm.py)
@@ -42,9 +42,12 @@ flowchart TD
     CAM["📷 cameras"] --> VIS
     FT["⚖️ force-torque sensor"] --> ARM
 
-    API --> AMR["<b>amr/</b><br/>SLAM · navigation · fleet coordination"]
-    API --> ARM["<b>arm/</b><br/>kinematics · compliance · planning"]
-    VIS["<b>vision/</b><br/>camera+LiDAR fusion · defect detection"] --> AMR
+    API --> ORCH["<b>orchestration/</b><br/>route · allocate · execute · report"]
+    ORCH --> AMR["<b>amr/</b><br/>SLAM · navigation · fleet coordination"]
+    ORCH --> ARM["<b>arm/</b><br/>kinematics · compliance · planning"]
+    ORCH --> VIS
+    VIS["<b>vision/</b><br/>camera+LiDAR fusion · defect detection"] --> ORCH
+    ORCH -.->|status| INT
 
     AMR --> SAFE
     ARM --> SAFE
@@ -55,7 +58,7 @@ flowchart TD
 
     ACT --> BRIDGE["<b>ros2_ws/</b> ROS 2 bridge"]
     BRIDGE --> HW["🤖 real hardware"]
-    BRIDGE --> TWIN["<b>digital_twin/</b><br/>Isaac Sim · Gazebo"]
+    BRIDGE --> TWIN["<b>digital_twin/</b><br/>kinematic · Gazebo · Isaac Sim"]
 
     style SAFE fill:#b45309,stroke:#f59e0b,stroke-width:3px,color:#fff
     style ACT fill:#14532d,stroke:#22c55e,color:#fff
@@ -76,7 +79,8 @@ The same interfaces drive the simulator and the real robot — so code validated
 | 👁️ **vision** | Multi-camera + LiDAR fusion, defect detection | YOLO-style multi-box output with NMS, not a single confidence score — real inspection scenes contain zero, one, or several distinct defects, each needing its own box |
 | 🛑 **safety** | E-stop, heartbeat watchdog, separation monitoring | Implements the **ISO/TS 15066 protective separation distance** formula (now folded into ISO 10218-2:2025). Faults *latch* — silence is never consent to resume |
 | 🔌 **integrations** | ERP / MES / SCADA clients | All three implement one `PlantSystemClient` protocol, so the task loop doesn't care which system issued the work |
-| 🌐 **digital_twin** | Isaac Sim + Gazebo backends | Train in Isaac Sim → validate in Gazebo → deploy via ROS 2, matching current sim-to-real practice |
+| 🔁 **orchestration** | Task routing + end-to-end execution | Routing validates payloads up front so an unroutable job is **rejected** upstream, never turned into a motion command with a guessed goal. Every job path releases its robot in a `finally` |
+| 🌐 **digital_twin** | Kinematic, Gazebo, and Isaac Sim backends | Train in Isaac Sim → validate in Gazebo → deploy via ROS 2, matching current sim-to-real practice. The kinematic backend needs neither, so the task path is tested on every push |
 
 ---
 
@@ -88,7 +92,11 @@ pip install -e . -r requirements.txt
 pytest
 ```
 
-29 tests, ~1 second, no ROS 2 or simulator required.
+61 tests, under a second, no ROS 2 or external simulator required. Then watch a shift run end to end:
+
+```bash
+python scripts/run_demo.py
+```
 
 ---
 
@@ -178,6 +186,7 @@ A test asserts recovery from a deliberately poor initial guess that a single-sta
 
 | Backend | Role |
 |---|---|
+| `KinematicSimulator` | Dependency-free differential-drive world — runs the full task path in CI |
 | `IsaacSimBackend` | GPU-parallel RL policy training, high visual/physical fidelity |
 | `GazeboBackend` | ROS 2-native validation on the same topics the real robot uses |
 | `NullSimulator` | No-op, so twin-dependent code imports and tests cleanly |
@@ -196,18 +205,80 @@ src/advanced_robotics/
 ├── core/           config schema, shared types, errors
 ├── amr/            SLAM interface, navigation, fleet coordination
 ├── arm/            kinematics + IK, force-torque compliance, motion planning
-├── vision/         camera/LiDAR fusion, defect detection
+├── vision/         camera/LiDAR fusion, defect detection, inspector interface
 ├── safety/         e-stop, safety monitor, ISO/TS 15066 separation
-├── integrations/   ERP / MES / SCADA clients behind one protocol
-├── digital_twin/   Isaac Sim, Gazebo, and null backends
+├── integrations/   ERP / MES / SCADA clients + in-memory mock plant
+├── orchestration/  task router, task executor, stack bootstrap
+├── digital_twin/   kinematic, Isaac Sim, Gazebo, and null backends
 └── api/            internal API for plant systems
 
 ros2_ws/            ROS 2 workspace — the only place rclpy is imported
 simulation/         digital twin worlds and assets
 config/             runtime configuration
 docs/               ARCHITECTURE.md
-tests/              29 tests
+tests/              61 tests
 ```
+
+</details>
+
+---
+
+## A task, end to end
+
+The orchestrator runs the path the platform exists for: a plant system issues a job, a robot executes it under the safety gate, and the result goes back upstream.
+
+```bash
+python scripts/run_demo.py
+```
+
+```
+world 'warehouse_basic' with 4 AMRs
+
+MES-1001  completed  amr0     5.30s sim  goal reached
+MES-1002  completed  amr0     5.85s sim  inspected 2 camera(s), 1 with defects
+           DEFECT cam0 conf=0.67 (21, 21, 29, 29)
+           clean  cam1 conf=0.00 None
+MES-1003  completed  arm0     2.55s sim  trajectory of 51 points executed in 0.40s
+
+-- e-stop engaged mid-shift --
+MES-1004  halted     amr0     0.05s sim  e-stop triggered
+
+safety mode: estopped, audit events: 1
+status reports sent upstream: 4
+```
+
+```python
+from advanced_robotics.integrations.plant_client import PlantTask
+from advanced_robotics.orchestration.bootstrap import build_simulation_stack
+
+stack = build_simulation_stack()
+stack.plant_client.enqueue(PlantTask("MES-1001", "transport", {"x": 6.0, "y": 0.0}))
+
+outcome = (await stack.executor.run_once())[0]   # async: the plant clients are async
+outcome.status                                   # -> "completed"
+stack.plant_client.reports_for("MES-1001")[-1]   # what the MES was told
+```
+
+Every outcome is a status the plant system can act on — `completed`, `halted`, `blocked`, `timeout`, `rejected` — never a silent failure:
+
+| Situation | Reported as | Why |
+|---|---|---|
+| Goal reached (and inspected, if asked) | `completed` | with defect reports attached |
+| E-stop, lost heartbeat, or separation breach | `halted` | motion zeroed, monitor latched, robot released |
+| Obstacle the recovery behavior can't clear | `blocked` | bounded, so a task never hangs the fleet |
+| Goal not reached within the tick budget | `timeout` | |
+| Payload the router can't validate | `rejected` | no motion command is issued from a guessed goal |
+
+The allocated robot is released in a `finally` block: a faulted task must never leave a robot marked busy, because that starves the fleet.
+
+<details>
+<summary><b>Why there's a kinematic simulator alongside Gazebo and Isaac Sim</b></summary>
+
+<br/>
+
+Isaac Sim needs a GPU stack and Gazebo needs a ROS 2 install, so neither runs in CI. `digital_twin/kinematic_backend.py` implements the same `SimulatorBackend` interface with an explicit differential-drive integration — kinematics only, no dynamics, no sensor noise — which is enough to test control flow and safety gating on every push.
+
+The division of labour: **kinematic** for CI and logic, **Gazebo** for physics and ROS 2 topic parity, **Isaac Sim** for policy training. The executor sees only the interface, so it is the same code in all three and on hardware.
 
 </details>
 
@@ -216,21 +287,21 @@ tests/              29 tests
 ## Status
 
 > [!WARNING]
-> **Phase 0–1 scaffold — not deployment-ready.** The safety logic, kinematics, and fleet allocation are real and tested, but SLAM/Nav2 wiring, trained inspection models, and the simulator backends are interfaces awaiting integration. No safety claim here substitutes for a formal risk assessment and certified safety-rated hardware.
+> **Not deployment-ready.** The safety logic, kinematics, fleet allocation, and the full task path are real and tested against a kinematic digital twin — but SLAM/Nav2 wiring, a trained inspection model, the Gazebo/Isaac Sim backends, and the real ERP/MES/SCADA endpoint schemas are still interfaces awaiting integration. No safety claim here substitutes for a formal risk assessment and certified safety-rated hardware.
 
 | Phase | Scope | State |
 |:--|:--|:--|
 | **0** | Repo foundations, shared types, ROS 2 bridge skeleton | ✅ Complete |
 | **1** | AMR navigation — proportional avoidance, recovery, fleet allocation | ✅ Logic complete, Nav2 wiring pending |
 | **2** | Arm control — kinematics, IK restarts, force limits | ✅ Logic complete, hardware pending |
-| **3** | Vision inspection — fusion + NMS pipeline | ⬜ Needs trained model |
+| **3** | Vision inspection — fusion + NMS pipeline | 🟨 Pipeline runs on a stand-in inspector; needs a trained model |
 | **4** | Safety layer — e-stop, watchdog, ISO/TS 15066 | ✅ Complete |
-| **5** | Plant integration — ERP / MES / SCADA end to end | ⬜ Endpoint schemas unconfirmed |
-| **6** | Digital twin + sim-to-real RL | ⬜ Backends stubbed |
+| **5** | Plant integration — task router, executor, API, end-to-end in the twin | ✅ Complete; real endpoint schemas unconfirmed |
+| **6** | Digital twin + sim-to-real RL | 🟨 Kinematic backend runs; Gazebo/Isaac Sim + RL harness pending |
 
-**What's real today:** ISO/TS 15066 separation math and the latching safety monitor, Nav2-style proportional avoidance with freezing-robot recovery, DH-parameter forward kinematics and multi-restart IK with joint limits, force-torque limit enforcement, greedy fleet allocation, camera/LiDAR time sync, and YOLO-style NMS.
+**What's real today:** the end-to-end task path (plant task → validation → allocation → safety-gated motion → inspection → status report) running in a kinematic digital twin, ISO/TS 15066 separation math and the latching safety monitor, Nav2-style proportional avoidance with freezing-robot recovery, DH-parameter forward kinematics and multi-restart IK with joint limits, force-torque limit enforcement, greedy fleet allocation, camera/LiDAR time sync, and YOLO-style NMS.
 
-**What's an interface:** SLAM/Nav2 backends, the trained defect model, Isaac Sim and Gazebo adapters, and the ERP/MES/SCADA endpoint schemas — the REST shapes in `integrations/` are placeholders to confirm against the real systems.
+**What's an interface:** SLAM/Nav2 backends, the trained defect model (`IntensityThresholdInspector` is a deliberate stand-in), Isaac Sim and Gazebo adapters, the RL training harness, and the ERP/MES/SCADA endpoint schemas — the REST shapes in `integrations/` are placeholders to confirm against the real systems.
 
 > [!NOTE]
 > The service page's figures — *5x throughput, sub-millimetre accuracy, 60% cost reduction, 99.8% uptime* — are targets to validate against real hardware, not properties of this repository.

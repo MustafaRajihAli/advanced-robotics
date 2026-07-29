@@ -12,3 +12,7 @@ class IntegrationError(AdvancedRoboticsError):
 
 class ConfigError(AdvancedRoboticsError):
     """Raised on invalid or missing configuration."""
+
+
+class TaskRoutingError(AdvancedRoboticsError):
+    """Raised when an inbound plant task can't be mapped to a robot job."""

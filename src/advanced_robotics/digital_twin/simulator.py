@@ -27,6 +27,31 @@ class SimulatorBackend(Protocol):
     def get_lidar_scan(self, lidar_id: str) -> LidarScan: ...
 
 
+class SimulatorSlam:
+    """Adapts a SimulatorBackend to the SlamBackend interface.
+
+    In simulation the world's ground-truth pose replaces the SLAM estimate, so
+    `Navigator` runs unchanged against either. Localization is always reported
+    as converged -- to exercise a de-localization fault, use a backend that
+    models it or inject a failing SlamBackend directly.
+    """
+
+    def __init__(self, backend: SimulatorBackend, robot_id: str) -> None:
+        self._backend = backend
+        self._robot_id = robot_id
+
+    def get_pose(self) -> Pose2D:
+        return self._backend.get_robot_pose(self._robot_id)
+
+    def get_occupancy_grid(self):
+        from advanced_robotics.amr.slam import OccupancyGrid
+
+        return OccupancyGrid(width=1, height=1, resolution_m=0.05, cells=b"\x00")
+
+    def is_localized(self) -> bool:
+        return True
+
+
 class NullSimulator:
     """No-op backend so digital_twin-dependent code imports cleanly before a
     real Gazebo/Isaac Sim adapter is wired in."""
