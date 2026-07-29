@@ -63,6 +63,19 @@ and to a digital twin for pre-deployment testing.
 - `digital_twin/simulator.py`: simulation harness (Gazebo/Isaac Sim adapter) driving AMR + arm + vision modules through the same interfaces used on real hardware
 - RL training harness for AMR/arm policies, with a documented sim-to-real transfer checklist
 
+## Upgrade log
+
+Applied after researching current (2025) practice in each subsystem:
+
+| Area | Change | Source |
+|---|---|---|
+| AMR obstacle handling | Replaced hard stop threshold with Nav2 costmap-style proportional slowdown (`inflation_radius`, `cost_scaling_factor`) + rotate-in-place recovery after N stuck ticks, to avoid the documented "freezing robot problem" | [Nav2 docs](https://docs.nav2.org/tutorials/docs/using_3laws_supervisor.html), [dynamic obstacle avoidance research](https://arxiv.org/pdf/2505.00237) |
+| Arm IK | Added joint-limit clamping + randomized-restart retries (numerical approximation of TRAC-IK's local-minima escape) | [TRAC-IK paper](http://irl.cs.brown.edu/pubs/trac-ik.pdf), [MoveIt IK solver docs](https://moveit.picknik.ai/main/doc/how_to_guides/trac_ik/trac_ik_tutorial.html) |
+| Vision defect detection | Switched from single max-confidence score to YOLO-style multi-box parsing + NMS, matching the dominant edge-inspection approach (YOLOv8-class models, >120 FPS on Jetson Orin-class hardware) | [Edge AI industrial inspection survey](https://www.mdpi.com/1999-4893/18/8/510) |
+| Safety | Added ISO/TS 15066 speed-and-separation-monitoring (SSM) protective-distance formula, gating any shared human/robot workspace alongside the existing e-stop/heartbeat check | [ISO/TS 15066 SSM implementation](https://pmc.ncbi.nlm.nih.gov/articles/PMC5117641/), [ISO/TS 15066 explained](https://www.automate.org/robotics/tech-papers/iso-ts-15066-explained) |
+| Digital twin | Added concrete `IsaacSimBackend` / `GazeboBackend` stubs reflecting the train-in-Isaac-Sim, validate-in-Gazebo, deploy-to-ROS2-hardware pipeline used in current sim-to-real research | [Sim-to-real transfer: Isaac Sim to Gazebo to ROS 2](https://arxiv.org/abs/2501.02902) |
+| CI | Added GitHub Actions workflow running ruff + pytest on every push/PR | — |
+
 ## Non-goals for the initial build
 - Surgical robotics and hazardous-environment (nuclear/EOD) applications are out of scope for the first version — they need certified hardware and domain-specific safety cases far beyond a code scaffold. Revisit once the core platform (Phases 0-4) is proven.
 

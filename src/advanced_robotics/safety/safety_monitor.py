@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from advanced_robotics.core.errors import SafetyFaultError
 from advanced_robotics.core.types import RobotMode
 from advanced_robotics.safety.estop import EstopSource
+from advanced_robotics.safety.ssm import SsmParameters, is_separation_violated
 
 logger = logging.getLogger("advanced_robotics.safety")
 
@@ -27,6 +28,7 @@ class AuditEvent:
 class SafetyMonitor:
     estop: EstopSource
     heartbeat_timeout_ms: int
+    ssm_params: SsmParameters = field(default_factory=SsmParameters)
     mode: RobotMode = RobotMode.IDLE
     audit_log: list[AuditEvent] = field(default_factory=list)
 
@@ -45,6 +47,19 @@ class SafetyMonitor:
         if self.mode in (RobotMode.ESTOPPED, RobotMode.FAULT):
             # stays latched until an explicit reset, even if the trigger cleared
             raise SafetyFaultError(f"latched in {self.mode.value}, awaiting reset")
+
+    def check_separation(
+        self, measured_distance_m: float, robot_speed_toward_human_mps: float
+    ) -> None:
+        """ISO/TS 15066 speed-and-separation gate for shared human/robot
+        workspaces. Call alongside check() wherever a human may be present
+        (collaborative arm cells, AMRs operating near pedestrians)."""
+        self.check()
+        if is_separation_violated(measured_distance_m, robot_speed_toward_human_mps, self.ssm_params):
+            self._fault(RobotMode.FAULT, f"SSM violation at {measured_distance_m:.2f}m")
+            raise SafetyFaultError(
+                f"separation distance {measured_distance_m:.2f}m below required minimum"
+            )
 
     def reset(self) -> None:
         self.mode = RobotMode.IDLE

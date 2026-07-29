@@ -3,22 +3,35 @@ amr:
   max_angular_speed_radps: 1.2
   obstacle_safety_margin_m: 0.3
   fleet_size: 4
+  # Nav2-style costmap tuning: robot_radius ~0.35m indoor warehouse AMR,
+  # inflation_radius >= robot_radius, cost_scaling_factor controls falloff steepness.
+  inflation_radius_m: 0.55
+  cost_scaling_factor: 3.0
+  stuck_recovery_ticks: 20
 
 arm:
   dof: 6
   force_limit_n: 50.0
   torque_limit_nm: 20.0
   positioning_tolerance_mm: 1.0
+  ik_max_restarts: 5
 
 vision:
   camera_ids: ["cam0", "cam1"]
   lidar_id: "lidar0"
   inference_backend: onnxruntime
   defect_confidence_threshold: 0.85
+  nms_iou_threshold: 0.45
+  model_input_size: 640
 
 safety:
   estop_heartbeat_timeout_ms: 250
   watchdog_interval_ms: 50
+  # ISO/TS 15066 SSM defaults; tune per sensing system and risk assessment.
+  ssm_human_speed_mps: 1.6
+  ssm_reaction_time_s: 0.1
+  ssm_stopping_time_s: 0.2
+  ssm_intrusion_distance_m: 0.85
 
 integrations:
   erp_enabled: false

@@ -13,6 +13,10 @@ class AMRConfig(BaseModel):
     max_angular_speed_radps: float
     obstacle_safety_margin_m: float
     fleet_size: int
+    # Nav2 costmap-inflation-style tuning (see docs/ARCHITECTURE.md for source)
+    inflation_radius_m: float = 0.55
+    cost_scaling_factor: float = 3.0
+    stuck_recovery_ticks: int = 20
 
 
 class ArmConfig(BaseModel):
@@ -20,6 +24,7 @@ class ArmConfig(BaseModel):
     force_limit_n: float
     torque_limit_nm: float
     positioning_tolerance_mm: float
+    ik_max_restarts: int = 5
 
 
 class VisionConfig(BaseModel):
@@ -27,11 +32,18 @@ class VisionConfig(BaseModel):
     lidar_id: str
     inference_backend: str
     defect_confidence_threshold: float
+    nms_iou_threshold: float = 0.45
+    model_input_size: int = 640
 
 
 class SafetyConfig(BaseModel):
     estop_heartbeat_timeout_ms: int
     watchdog_interval_ms: int
+    # ISO/TS 15066 speed-and-separation-monitoring parameters
+    ssm_human_speed_mps: float = 1.6
+    ssm_reaction_time_s: float = 0.1
+    ssm_stopping_time_s: float = 0.2
+    ssm_intrusion_distance_m: float = 0.85
 
 
 class IntegrationsConfig(BaseModel):
